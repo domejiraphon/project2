@@ -15,7 +15,7 @@ import torch.onnx
 import utils
 from transformer_net import TransformerNet
 from vgg import Vgg16
-
+from loguru import logger 
 
 def check_paths(args):
     try:
@@ -182,7 +182,7 @@ def stylize_onnx(content_image, args):
 
     return torch.from_numpy(img_out_y)
 
-
+@logger.catch
 def main():
     main_arg_parser = argparse.ArgumentParser(description="parser for fast-neural-style")
     subparsers = main_arg_parser.add_subparsers(title="subcommands", dest="subcommand")
@@ -243,9 +243,10 @@ def main():
     if args.cuda and not torch.cuda.is_available():
         print("ERROR: cuda is not available, try running on CPU")
         sys.exit(1)
+    """
     if not args.mps and torch.backends.mps.is_available():
         print("WARNING: mps is available, run with --mps to enable macOS GPU")
-
+    """
     if args.subcommand == "train":
         check_paths(args)
         train(args)
