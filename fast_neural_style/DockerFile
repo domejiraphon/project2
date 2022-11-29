@@ -1,12 +1,14 @@
 # Use pytorch GPU base image
 # FROM gcr.io/cloud-aiplatform/training/pytorch-gpu.1-7
 FROM us-docker.pkg.dev/vertex-ai/training/pytorch-gpu.1-10:latest
+#FROM pytorch/pytorch:latest
 
 # set working directory
 WORKDIR /app
 
 # Install required packages
-RUN pip install google-cloud-storage transformers datasets tqdm cloudml-hypertune
+RUN pip install google-cloud-storage transformers datasets tqdm cloudml-hypertune onnxruntime loguru Pillow numpy
+#RUN pip install --no-cache-dir -r requirements.txt
 
 # Copies the trainer code to the docker image.
 COPY ./neural_style/__init__.py /app/neural_style/__init__.py
@@ -14,7 +16,8 @@ COPY ./neural_style/neural_style.py /app/neural_style/neural_style.py
 COPY ./neural_style/transformer_net.py /app/neural_style/transformer_net.py
 COPY ./neural_style/utils.py /app/neural_style/utils.py
 COPY ./neural_style/vgg.py /app/neural_style/vgg.py
+COPY ./images/style-images /app/style-images 
 
 
 # Set up the entry point to invoke the trainer.
-ENTRYPOINT ["python", "-m", "trainer.task"]
+#ENTRYPOINT ["python neural_style/neural_style.py train --dataset gs://data-cloudmlproject2/coco_sampled/ --style-image style-imags/rain-princess-cropped.jpg --save-model-dir </path/to/save-model/folder> --epochs 2 --cuda 1"]
