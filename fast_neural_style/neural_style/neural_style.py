@@ -132,17 +132,19 @@ def stylize(args):
     ])
     content_image = content_transform(content_image)
     content_image = content_image.unsqueeze(0).to(device)
-
+    logger.info("Start inference")
     if args.model.endswith(".onnx"):
         output = stylize_onnx(content_image, args)
     else:
         with torch.no_grad():
             style_model = TransformerNet()
+            
             state_dict = torch.load(args.model)
             # remove saved deprecated running_* keys in InstanceNorm from the checkpoint
             for k in list(state_dict.keys()):
                 if re.search(r'in\d+\.running_(mean|var)$', k):
                     del state_dict[k]
+            logger.info("Load pretrained model")
             style_model.load_state_dict(state_dict)
             style_model.to(device)
             style_model.eval()
@@ -153,6 +155,7 @@ def stylize(args):
                 ).cpu()            
             else:
                 output = style_model(content_image).cpu()
+    logger.info(f"The output image has been saved to {args.output_image}")
     utils.save_image(args.output_image, output[0])
 
 

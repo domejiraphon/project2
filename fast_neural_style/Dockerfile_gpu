@@ -1,0 +1,21 @@
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+# Install required packages
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+#Install vim text editor
+RUN apt-get update
+RUN apt-get install vim -y
+
+#Switch to a non-root user
+RUN useradd dome && chown -R dome /app
+USER dome
+
+# Copies the trainer code to the docker image.
+ADD ./neural_style /app/neural_style
+ADD ./images /app/images 
+ADD ./saved_models /app/saved_models 
+
+CMD exec /bin/bash -c "python neural_style/neural_style.py eval \
+    --content-image ./images/content-images/1.png --model ./saved_models/candy.pth\
+     --output-image ./output/out.jpg --cuda 1; trap : TERM INT; sleep infinity & wait"
