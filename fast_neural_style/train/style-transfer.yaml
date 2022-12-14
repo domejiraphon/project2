@@ -1,0 +1,91 @@
+components:
+  comp-infer-container:
+    executorLabel: exec-infer-container
+    inputDefinitions:
+      artifacts:
+        trained_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+  comp-train-container:
+    executorLabel: exec-train-container
+    outputDefinitions:
+      artifacts:
+        trained_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-infer-container:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - infer_container
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0-beta.8'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef infer_container(trained_model: Input[Model]):\n    \"\"\"Custom\
+          \ container component to train the model.\"\"\"\n    return dsl.ContainerSpec(\n\
+          \        image='docker.io/jy3694/style_infer2',\n        command=[\n   \
+          \         'sh', '-c',\n            'python flask_server.py'\n        ],\n\
+          \        args=[trained_model.path])\n\n"
+        image: python:3.7
+    exec-train-container:
+      container:
+        args:
+        - '{{$.outputs.artifacts[''trained_model''].path}}'
+        command:
+        - sh
+        - -c
+        - python neural_style/neural_style.py train; echo /app/runs/ckpt.pth > "$0"
+        image: docker.io/jy3694/style_train
+pipelineInfo:
+  name: style-transfer
+root:
+  dag:
+    tasks:
+      infer-container:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-infer-container
+        dependentTasks:
+        - train-container
+        inputs:
+          artifacts:
+            trained_model:
+              taskOutputArtifact:
+                outputArtifactKey: trained_model
+                producerTask: train-container
+        taskInfo:
+          name: infer-container
+      train-container:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-container
+        taskInfo:
+          name: train-container
+  inputDefinitions:
+    parameters:
+      pipeline_parameter_id:
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.0-beta.8
