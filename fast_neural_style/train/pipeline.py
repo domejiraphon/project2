@@ -72,7 +72,6 @@ def train(dataset_path: str,
             y = self.deconv3(y)
             return y
 
-
     class ConvLayer(torch.nn.Module):
         def __init__(self, in_channels, out_channels, kernel_size, stride):
             super(ConvLayer, self).__init__()
@@ -84,7 +83,6 @@ def train(dataset_path: str,
             out = self.reflection_pad(x)
             out = self.conv2d(out)
             return out
-
 
     class ResidualBlock(torch.nn.Module):
         """ResidualBlock
@@ -106,7 +104,6 @@ def train(dataset_path: str,
             out = self.in2(self.conv2(out))
             out = out + residual
             return out
-
 
     class UpsampleConvLayer(torch.nn.Module):
         """UpsampleConvLayer
@@ -296,15 +293,20 @@ def train(dataset_path: str,
     save_model_path = os.path.join(save_model_dir, save_model_filename)
     torch.save(transformer.state_dict(), save_model_path)
 
-    print("\nDone, trained model saved at", save_model_path)
+    logger.info("\nDone, trained model saved at", save_model_path)
     
+    """
     with open(trained_model_path, 'w') as writer:
         writer.write(transformer)
+    """
+    torch.save(transformer.state_dict(), trained_model_path)
+    
+
         
 def infer(
          trained_model_path: InputPath(torch.nn.Module),
          content_img_path: str,
-         output_image_path: str="./",
+         output_image_path: str="./out.jpg",
          ):
     import numpy as np
     import torch
@@ -318,7 +320,7 @@ def infer(
     #from transformer_net import TransformerNet
     #from vgg import Vgg16
     from loguru import logger 
-    import time, sys, os
+    import time, sys, os, re
     
     class TransformerNet(torch.nn.Module):
         def __init__(self):
@@ -359,7 +361,6 @@ def infer(
             y = self.deconv3(y)
             return y
 
-
     class ConvLayer(torch.nn.Module):
         def __init__(self, in_channels, out_channels, kernel_size, stride):
             super(ConvLayer, self).__init__()
@@ -371,7 +372,6 @@ def infer(
             out = self.reflection_pad(x)
             out = self.conv2d(out)
             return out
-
 
     class ResidualBlock(torch.nn.Module):
         """ResidualBlock
@@ -394,7 +394,6 @@ def infer(
             out = out + residual
             return out
 
-
     class UpsampleConvLayer(torch.nn.Module):
         """UpsampleConvLayer
         Upsamples the input and then does a convolution. This method gives better results
@@ -416,6 +415,7 @@ def infer(
             out = self.reflection_pad(x_in)
             out = self.conv2d(out)
             return out
+    
     def load_image(filename, size=None, scale=None):
         img = Image.open(filename).convert('RGB')
         if size is not None:
@@ -427,8 +427,12 @@ def infer(
     Load inference image
     """
     device = torch.device("cpu")
-
-    content_image = load_image(content_image_path)
+    dummy = True
+    if dummy:
+      numpy_image = np.zeros((100, 100, 3))
+      content_image = Image.fromarray(np.uint8(numpy_image)).convert('RGB')
+    else:
+      content_image = load_image(content_img_path)
     content_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.mul(255))
@@ -441,6 +445,7 @@ def infer(
         """
         Load model from previously trained component
         """
+       
         state_dict = torch.load(trained_model_path)
         # remove saved deprecated running_* keys in InstanceNorm from the checkpoint
         for k in list(state_dict.keys()):
@@ -448,7 +453,8 @@ def infer(
                 del state_dict[k]
         logger.info("Load pretrained model")
         style_model.load_state_dict(state_dict)
-        style_model.to(device)
+        
+        #style_model.to(device)
         style_model.eval()
         output = style_model(content_image).cpu()
     logger.info(f"The output image has been saved to {output_image_path}")
@@ -476,13 +482,14 @@ def my_pipeline(dataset_path: str="gs://style-transfer-data/coco_sampled/",
                 epochs: int=1,
                 style_image: str="gs://style-transfer-data/style.jpeg",
                 content_img_path: str="gs://style-transfer-data/test.jpg",
-                output_image_path: str="./",):
+                output_image_path: str="./out.jpg",):
     
     trained_model = train_op(dataset_path,
                             epochs,
-                            style_image)
+                            style_image,)
     infer_op(trained_model.output, 
-          content_img_path=content_img_path)
+          content_img_path=content_img_path,
+          output_image_path=output_image_path)
 
 
 if __name__ == '__main__':

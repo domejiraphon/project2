@@ -2,22 +2,22 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   generateName: my-pipeline-
-  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.16, pipelines.kubeflow.org/pipeline_compilation_time: '2022-12-13T19:29:35.543755',
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.17, pipelines.kubeflow.org/pipeline_compilation_time: '2022-12-13T23:15:07.091504',
     pipelines.kubeflow.org/pipeline_spec: '{"inputs": [{"default": "gs://style-transfer-data/coco_sampled/",
       "name": "dataset_path", "optional": true, "type": "String"}, {"default": "1",
       "name": "epochs", "optional": true, "type": "Integer"}, {"default": "gs://style-transfer-data/style.jpeg",
       "name": "style_image", "optional": true, "type": "String"}, {"default": "gs://style-transfer-data/test.jpg",
       "name": "content_img_path", "optional": true, "type": "String"}, {"default":
-      "./", "name": "output_image_path", "optional": true, "type": "String"}], "name":
-      "My pipeline"}'}
-  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.16}
+      "./out.jpg", "name": "output_image_path", "optional": true, "type": "String"}],
+      "name": "My pipeline"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.17}
 spec:
   entrypoint: my-pipeline
   templates:
   - name: infer
     container:
       args: [--trained-model, /tmp/inputs/trained_model/data, --content-img-path,
-        '{{inputs.parameters.content_img_path}}', --output-image-path, ./]
+        '{{inputs.parameters.content_img_path}}', --output-image-path, '{{inputs.parameters.output_image_path}}']
       command:
       - sh
       - -c
@@ -31,13 +31,13 @@ spec:
         printf "%s" "$0" > "$program_path"
         python3 -u "$program_path" "$@"
       - "def infer(\n         trained_model_path,\n         content_img_path,\n  \
-        \       output_image_path=\"./\",\n         ):\n    import numpy as np\n \
-        \   import torch\n    from torch.optim import Adam\n    from torch.utils.data\
+        \       output_image_path=\"./out.jpg\",\n         ):\n    import numpy as\
+        \ np\n    import torch\n    from torch.optim import Adam\n    from torch.utils.data\
         \ import DataLoader\n    from torchvision import datasets\n    from torchvision\
         \ import transforms\n    import torch.onnx\n    from PIL import Image\n  \
         \  #import utils\n    #from transformer_net import TransformerNet\n    #from\
         \ vgg import Vgg16\n    from loguru import logger \n    import time, sys,\
-        \ os\n\n    class TransformerNet(torch.nn.Module):\n        def __init__(self):\n\
+        \ os, re\n\n    class TransformerNet(torch.nn.Module):\n        def __init__(self):\n\
         \            super(TransformerNet, self).__init__()\n            # Initial\
         \ convolution layers\n            self.conv1 = ConvLayer(3, 32, kernel_size=9,\
         \ stride=1)\n            self.in1 = torch.nn.InstanceNorm2d(32, affine=True)\n\
@@ -88,24 +88,26 @@ spec:
         \ stride)\n\n        def forward(self, x):\n            x_in = x\n       \
         \     if self.upsample:\n                x_in = torch.nn.functional.interpolate(x_in,\
         \ mode='nearest', scale_factor=self.upsample)\n            out = self.reflection_pad(x_in)\n\
-        \            out = self.conv2d(out)\n            return out\n    def load_image(filename,\
+        \            out = self.conv2d(out)\n            return out\n\n    def load_image(filename,\
         \ size=None, scale=None):\n        img = Image.open(filename).convert('RGB')\n\
         \        if size is not None:\n            img = img.resize((size, size),\
         \ Image.ANTIALIAS)\n        elif scale is not None:\n            img = img.resize((int(img.size[0]\
         \ / scale), int(img.size[1] / scale)), Image.ANTIALIAS)\n        return img\n\
         \    \"\"\"\n    Load inference image\n    \"\"\"\n    device = torch.device(\"\
-        cpu\")\n\n    content_image = load_image(content_image_path)\n    content_transform\
+        cpu\")\n    dummy = True\n    if dummy:\n      numpy_image = np.zeros((100,\
+        \ 100, 3))\n      content_image = Image.fromarray(np.uint8(numpy_image)).convert('RGB')\n\
+        \    else:\n      content_image = load_image(content_img_path)\n    content_transform\
         \ = transforms.Compose([\n        transforms.ToTensor(),\n        transforms.Lambda(lambda\
         \ x: x.mul(255))\n    ])\n    content_image = content_transform(content_image)\n\
         \    content_image = content_image.unsqueeze(0).to(device)\n    logger.info(\"\
         Start inference\")\n    with torch.no_grad():\n        style_model = TransformerNet()\n\
         \        \"\"\"\n        Load model from previously trained component\n  \
-        \      \"\"\"\n        state_dict = torch.load(trained_model_path)\n     \
-        \   # remove saved deprecated running_* keys in InstanceNorm from the checkpoint\n\
+        \      \"\"\"\n\n        state_dict = torch.load(trained_model_path)\n   \
+        \     # remove saved deprecated running_* keys in InstanceNorm from the checkpoint\n\
         \        for k in list(state_dict.keys()):\n            if re.search(r'in\\\
         d+\\.running_(mean|var)$', k):\n                del state_dict[k]\n      \
         \  logger.info(\"Load pretrained model\")\n        style_model.load_state_dict(state_dict)\n\
-        \        style_model.to(device)\n        style_model.eval()\n        output\
+        \n        #style_model.to(device)\n        style_model.eval()\n        output\
         \ = style_model(content_image).cpu()\n    logger.info(f\"The output image\
         \ has been saved to {output_image_path}\")\n\n    def save_image(filename,\
         \ data):\n        img = data.clone().clamp(0, 255).numpy()\n        img =\
@@ -122,11 +124,12 @@ spec:
     inputs:
       parameters:
       - {name: content_img_path}
+      - {name: output_image_path}
       artifacts:
       - {name: train-trained_model, path: /tmp/inputs/trained_model/data}
     metadata:
       labels:
-        pipelines.kubeflow.org/kfp_sdk_version: 1.8.16
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.17
         pipelines.kubeflow.org/pipeline-sdk-type: kfp
         pipelines.kubeflow.org/enable_caching: "true"
       annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
@@ -137,13 +140,13 @@ spec:
           install --quiet --no-warn-script-location ''loguru'' || PIP_DISABLE_PIP_VERSION_CHECK=1
           python3 -m pip install --quiet --no-warn-script-location ''loguru'' --user)
           && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\"
-          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def infer(\n         trained_model_path,\n         content_img_path,\n         output_image_path=\"./\",\n         ):\n    import
+          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def infer(\n         trained_model_path,\n         content_img_path,\n         output_image_path=\"./out.jpg\",\n         ):\n    import
           numpy as np\n    import torch\n    from torch.optim import Adam\n    from
           torch.utils.data import DataLoader\n    from torchvision import datasets\n    from
           torchvision import transforms\n    import torch.onnx\n    from PIL import
           Image\n    #import utils\n    #from transformer_net import TransformerNet\n    #from
           vgg import Vgg16\n    from loguru import logger \n    import time, sys,
-          os\n\n    class TransformerNet(torch.nn.Module):\n        def __init__(self):\n            super(TransformerNet,
+          os, re\n\n    class TransformerNet(torch.nn.Module):\n        def __init__(self):\n            super(TransformerNet,
           self).__init__()\n            # Initial convolution layers\n            self.conv1
           = ConvLayer(3, 32, kernel_size=9, stride=1)\n            self.in1 = torch.nn.InstanceNorm2d(32,
           affine=True)\n            self.conv2 = ConvLayer(32, 64, kernel_size=3,
@@ -189,20 +192,22 @@ spec:
           forward(self, x):\n            x_in = x\n            if self.upsample:\n                x_in
           = torch.nn.functional.interpolate(x_in, mode=''nearest'', scale_factor=self.upsample)\n            out
           = self.reflection_pad(x_in)\n            out = self.conv2d(out)\n            return
-          out\n    def load_image(filename, size=None, scale=None):\n        img =
-          Image.open(filename).convert(''RGB'')\n        if size is not None:\n            img
+          out\n\n    def load_image(filename, size=None, scale=None):\n        img
+          = Image.open(filename).convert(''RGB'')\n        if size is not None:\n            img
           = img.resize((size, size), Image.ANTIALIAS)\n        elif scale is not None:\n            img
           = img.resize((int(img.size[0] / scale), int(img.size[1] / scale)), Image.ANTIALIAS)\n        return
-          img\n    \"\"\"\n    Load inference image\n    \"\"\"\n    device = torch.device(\"cpu\")\n\n    content_image
-          = load_image(content_image_path)\n    content_transform = transforms.Compose([\n        transforms.ToTensor(),\n        transforms.Lambda(lambda
+          img\n    \"\"\"\n    Load inference image\n    \"\"\"\n    device = torch.device(\"cpu\")\n    dummy
+          = True\n    if dummy:\n      numpy_image = np.zeros((100, 100, 3))\n      content_image
+          = Image.fromarray(np.uint8(numpy_image)).convert(''RGB'')\n    else:\n      content_image
+          = load_image(content_img_path)\n    content_transform = transforms.Compose([\n        transforms.ToTensor(),\n        transforms.Lambda(lambda
           x: x.mul(255))\n    ])\n    content_image = content_transform(content_image)\n    content_image
           = content_image.unsqueeze(0).to(device)\n    logger.info(\"Start inference\")\n    with
           torch.no_grad():\n        style_model = TransformerNet()\n        \"\"\"\n        Load
-          model from previously trained component\n        \"\"\"\n        state_dict
+          model from previously trained component\n        \"\"\"\n\n        state_dict
           = torch.load(trained_model_path)\n        # remove saved deprecated running_*
           keys in InstanceNorm from the checkpoint\n        for k in list(state_dict.keys()):\n            if
           re.search(r''in\\d+\\.running_(mean|var)$'', k):\n                del state_dict[k]\n        logger.info(\"Load
-          pretrained model\")\n        style_model.load_state_dict(state_dict)\n        style_model.to(device)\n        style_model.eval()\n        output
+          pretrained model\")\n        style_model.load_state_dict(state_dict)\n\n        #style_model.to(device)\n        style_model.eval()\n        output
           = style_model(content_image).cpu()\n    logger.info(f\"The output image
           has been saved to {output_image_path}\")\n\n    def save_image(filename,
           data):\n        img = data.clone().clamp(0, 255).numpy()\n        img =
@@ -214,16 +219,17 @@ spec:
           dest=\"output_image_path\", type=str, required=False, default=argparse.SUPPRESS)\n_parsed_args
           = vars(_parser.parse_args())\n\n_outputs = infer(**_parsed_args)\n"], "image":
           "pytorch/pytorch:latest"}}, "inputs": [{"name": "trained_model", "type":
-          "Module"}, {"name": "content_img_path", "type": "String"}, {"default": "./",
+          "Module"}, {"name": "content_img_path", "type": "String"}, {"default": "./out.jpg",
           "name": "output_image_path", "optional": true, "type": "String"}], "name":
           "Infer"}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"content_img_path":
-          "{{inputs.parameters.content_img_path}}", "output_image_path": "./"}'}
+          "{{inputs.parameters.content_img_path}}", "output_image_path": "{{inputs.parameters.output_image_path}}"}'}
   - name: my-pipeline
     inputs:
       parameters:
       - {name: content_img_path}
       - {name: dataset_path}
       - {name: epochs}
+      - {name: output_image_path}
       - {name: style_image}
     dag:
       tasks:
@@ -233,6 +239,7 @@ spec:
         arguments:
           parameters:
           - {name: content_img_path, value: '{{inputs.parameters.content_img_path}}'}
+          - {name: output_image_path, value: '{{inputs.parameters.output_image_path}}'}
           artifacts:
           - {name: train-trained_model, from: '{{tasks.train.outputs.artifacts.train-trained_model}}'}
       - name: train
@@ -397,17 +404,18 @@ spec:
         \n    \"\"\"\n    save model\n    \"\"\"\n    transformer.eval().cpu()\n \
         \   save_model_dir = \"./\"\n    save_model_filename = \"ckpt.pth\"\n    save_model_path\
         \ = os.path.join(save_model_dir, save_model_filename)\n    torch.save(transformer.state_dict(),\
-        \ save_model_path)\n\n    print(\"\\nDone, trained model saved at\", save_model_path)\n\
-        \n    with open(trained_model_path, 'w') as writer:\n        writer.write(transformer)\n\
-        \nimport argparse\n_parser = argparse.ArgumentParser(prog='Train', description='')\n\
-        _parser.add_argument(\"--dataset-path\", dest=\"dataset_path\", type=str,\
-        \ required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--epochs\"\
-        , dest=\"epochs\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
-        --style-image\", dest=\"style_image\", type=str, required=True, default=argparse.SUPPRESS)\n\
-        _parser.add_argument(\"--image-size\", dest=\"image_size\", type=int, required=False,\
-        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--batch-size\", dest=\"\
-        batch_size\", type=int, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
-        --trained-model\", dest=\"trained_model_path\", type=_make_parent_dirs_and_return_path,\
+        \ save_model_path)\n\n    logger.info(\"\\nDone, trained model saved at\"\
+        , save_model_path)\n\n    \"\"\"\n    with open(trained_model_path, 'w') as\
+        \ writer:\n        writer.write(transformer)\n    \"\"\"\n    torch.save(transformer.state_dict(),\
+        \ trained_model_path)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog='Train',\
+        \ description='')\n_parser.add_argument(\"--dataset-path\", dest=\"dataset_path\"\
+        , type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
+        --epochs\", dest=\"epochs\", type=int, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--style-image\", dest=\"style_image\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--image-size\", dest=\"\
+        image_size\", type=int, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
+        --batch-size\", dest=\"batch_size\", type=int, required=False, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--trained-model\", dest=\"trained_model_path\", type=_make_parent_dirs_and_return_path,\
         \ required=True, default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\
         \n_outputs = train(**_parsed_args)\n"
       image: pytorch/pytorch:latest
@@ -421,7 +429,7 @@ spec:
       - {name: train-trained_model, path: /tmp/outputs/trained_model/data}
     metadata:
       labels:
-        pipelines.kubeflow.org/kfp_sdk_version: 1.8.16
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.17
         pipelines.kubeflow.org/pipeline-sdk-type: kfp
         pipelines.kubeflow.org/enable_caching: "true"
       annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
@@ -551,10 +559,12 @@ spec:
           / (batch_id + 1)\n                )\n                logger.info(mesg)\n\n    \"\"\"\n    save
           model\n    \"\"\"\n    transformer.eval().cpu()\n    save_model_dir = \"./\"\n    save_model_filename
           = \"ckpt.pth\"\n    save_model_path = os.path.join(save_model_dir, save_model_filename)\n    torch.save(transformer.state_dict(),
-          save_model_path)\n\n    print(\"\\nDone, trained model saved at\", save_model_path)\n\n    with
-          open(trained_model_path, ''w'') as writer:\n        writer.write(transformer)\n\nimport
-          argparse\n_parser = argparse.ArgumentParser(prog=''Train'', description='''')\n_parser.add_argument(\"--dataset-path\",
-          dest=\"dataset_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--epochs\",
+          save_model_path)\n\n    logger.info(\"\\nDone, trained model saved at\",
+          save_model_path)\n\n    \"\"\"\n    with open(trained_model_path, ''w'')
+          as writer:\n        writer.write(transformer)\n    \"\"\"\n    torch.save(transformer.state_dict(),
+          trained_model_path)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Train'',
+          description='''')\n_parser.add_argument(\"--dataset-path\", dest=\"dataset_path\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--epochs\",
           dest=\"epochs\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--style-image\",
           dest=\"style_image\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--image-size\",
           dest=\"image_size\", type=int, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"--batch-size\",
@@ -576,5 +586,5 @@ spec:
     - {name: epochs, value: '1'}
     - {name: style_image, value: 'gs://style-transfer-data/style.jpeg'}
     - {name: content_img_path, value: 'gs://style-transfer-data/test.jpg'}
-    - {name: output_image_path, value: ./}
+    - {name: output_image_path, value: ./out.jpg}
   serviceAccountName: pipeline-runner
