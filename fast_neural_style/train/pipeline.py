@@ -191,7 +191,7 @@ def train(dataset_path: str,
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.mul(255))
     ])
-    dummy = True
+    dummy = False
     if dummy:
         logger.info("=> Dummy data is used!")
         train_dataset = datasets.FakeData(10, (3, image_size, image_size), 10, transforms.ToTensor())
@@ -245,7 +245,7 @@ def train(dataset_path: str,
         agg_style_loss = 0.
         count = 0
         for batch_id, (x, _) in enumerate(train_loader):
-            logger.info(f"Step: {batch_id}")
+            #logger.info(f"Step: {batch_id}")
             n_batch = len(x)
             count += n_batch
             optimizer.zero_grad()
@@ -300,9 +300,7 @@ def train(dataset_path: str,
         writer.write(transformer)
     """
     torch.save(transformer.state_dict(), trained_model_path)
-    
-
-        
+            
 def infer(
          trained_model_path: InputPath(torch.nn.Module),
          content_img_path: str,
@@ -427,7 +425,7 @@ def infer(
     Load inference image
     """
     device = torch.device("cpu")
-    dummy = True
+    dummy = False
     if dummy:
       numpy_image = np.zeros((100, 100, 3))
       content_image = Image.fromarray(np.uint8(numpy_image)).convert('RGB')
@@ -469,21 +467,21 @@ def infer(
 
 train_op = create_component_from_func(
                     func = train,
-                    base_image="pytorch/pytorch:latest",
+                    base_image="jy3694/kubeflow_component_1:latest",
                     packages_to_install=["loguru"]
                 )
 infer_op = create_component_from_func(
                     func = infer,
-                    base_image="pytorch/pytorch:latest",
+                    base_image="jy3694/kubeflow_component_1:latest",
                     packages_to_install=["loguru"]
                 )
     
-def my_pipeline(dataset_path: str="gs://style-transfer-data/coco_sampled/", 
+def my_pipeline(dataset_path: str="/data/coco_sampled", 
                 epochs: int=1,
-                style_image: str="gs://style-transfer-data/style.jpeg",
-                content_img_path: str="gs://style-transfer-data/test.jpg",
+                style_image: str="/data/images/style-images/mosaic.jpg",
+                content_img_path: str="/data/images/content-images/1.png",
                 output_image_path: str="./out.jpg",):
-    
+    dataset_path = "/data/coco_sampled"
     trained_model = train_op(dataset_path,
                             epochs,
                             style_image,)
