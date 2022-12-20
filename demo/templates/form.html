@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+.grid-container {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  background-color: #2196F3;
+  padding: 10px;
+}
+
+.grid-item {
+  background-color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.8);
+  padding: 20px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.button {
+     width: 200%;
+     height: 2	00%;
+}
+
+</style>
+</head>
+<body>
+
+<h1>Neural style transfer</h1>
+
+<p>Please select 1 style image and 1 content image</p>
+<p>Style Image &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp; Content Image</p>
+<div class="grid-container">
+  <div class="grid-item"><img src="/static/mosaic.jpg" alt="mosaic" width="180" height="180"><br>Mosaic</div>	
+  <div class="grid-item"><img src="/static/candy.jpg" alt="candy" width="180" height="180"><br>Candy</div>
+  <div class="grid-item"><img src="/static/rain-princess.jpg" alt="rain-princess" width="180" height="180"><br>Rain Princess</div>  
+  <div class="grid-item"><img src="/static/udnie.jpg" alt="udnie" width="180" height="180"><br>Udnie</div>
+</div>
+&emsp;&emsp;&emsp;&emsp;
+<div class="grid-container">
+  <div class="grid-item"><img src="/static/lion.jpg" alt="lion" width="180" height="180"><br>Lion</div>
+  <div class="grid-item"><img src="/static/golden_gate.jpg" alt="golden_gate" width="180" height="180"><br>Golden Gate</div>
+  <div class="grid-item"><img src="/static/taj_mahal.jpg" alt="taj_mahal" width="180" height="180"><br>Taj Mahal</div>  
+  <div class="grid-item"><img src="/static/tubingen.png" alt="tubingen" width="180" height="180"><br>Tubingen</div>
+</div>
+	
+<br><br><br>
+<form action="{{ url_for("gfg")}}" method="post">
+<p>Choose your Style image:</p>
+<input type="radio" id="mosaic.jpg" name="style" value="mosaic">
+<label for="mosaic.jpg">Mosaic</label><br>
+<input type="radio" id="candy.jpg" name="style" value="candy">
+<label for="candy.jpg">Candy</label><br>
+<input type="radio" id="rain-princess.jpg" name="style" value="rain_princess">
+<label for="rain-princess.jpg">Rain Princess</label><br>
+<input type="radio" id="udnie.jpg" name="style" value="udnie">
+<label for="udnie.jpg">Udnie</label><br>
+<p>Choose your Content image:</p>
+<input type="radio" id="lion.jpg" name="content" value="lion.jpg">
+<label for="lion.jpg">Lion</label><br>
+<input type="radio" id="golden_gate.jpg" name="content" value="golden_gate.jpg">
+<label for="golden_gate.jpg">Golden Gate</label><br>
+<input type="radio" id="taj_mahal.jpg" name="content" value="taj_mahal.jpg">
+<label for="taj_mahal.jpg">Taj Mahal</label><br>
+<input type="radio" id="tubingen.png" name="content" value="tubingen.png">
+<label for="tubingen.png">Tubingen</label><br>
+<br>
+<label for="link">Or input your own content image link:</label>
+<input type="text" id="link" name="link" placeholder="link" size="50">
+<br>
+<br>
+<button type="submit">Transfer image style</button>	
+
+</body>
+</html>
+
