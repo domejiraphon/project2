@@ -1,0 +1,12 @@
+apiVersion: v1	
+kind: Service
+metadata:
+  name: style-service-2
+spec:
+  selector:
+    pipelines.kubeflow.org/kfp_sdk_version: 1.8.17
+  ports:
+    - protocol: TCP
+      port: 82
+      targetPort: 82
+  type: LoadBalancer

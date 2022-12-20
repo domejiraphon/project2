@@ -1,0 +1,608 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: my-pipeline-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.17, pipelines.kubeflow.org/pipeline_compilation_time: '2022-12-19T03:55:28.654805',
+    pipelines.kubeflow.org/pipeline_spec: '{"inputs": [{"default": "/data/coco_sampled",
+      "name": "dataset_path", "optional": true, "type": "String"}, {"default": "2",
+      "name": "epochs", "optional": true, "type": "Integer"}, {"default": "/data/images/style-images/mosaic.jpg",
+      "name": "style_image", "optional": true, "type": "String"}, {"default": "/data/images/content-images/1.png",
+      "name": "content_img_path", "optional": true, "type": "String"}], "name": "My
+      pipeline"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.17}
+spec:
+  entrypoint: my-pipeline
+  templates:
+  - name: infer
+    container:
+      args: [--trained-model, /tmp/inputs/trained_model/data, --content-img-path,
+        '{{inputs.parameters.content_img_path}}', --output-image, /tmp/outputs/output_image/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'loguru' 'flask' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install
+        --quiet --no-warn-script-location 'loguru' 'flask' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n \
+        \   os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return file_path\n\
+        \ndef infer(\n         trained_model_path,\n         content_img_path,\n \
+        \        output_image_path,\n         ):\n    import numpy as np\n    import\
+        \ torch\n    from torch.optim import Adam\n    from torch.utils.data import\
+        \ DataLoader\n    from torchvision import datasets\n    from torchvision import\
+        \ transforms\n    import torch.onnx\n    from PIL import Image\n    #import\
+        \ utils\n    #from transformer_net import TransformerNet\n    #from vgg import\
+        \ Vgg16\n    from loguru import logger \n    import time, sys, os, re\n  \
+        \  from flask import Flask, request, render_template, send_file\n\n    class\
+        \ TransformerNet(torch.nn.Module):\n        def __init__(self):\n        \
+        \    super(TransformerNet, self).__init__()\n            # Initial convolution\
+        \ layers\n            self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)\n\
+        \            self.in1 = torch.nn.InstanceNorm2d(32, affine=True)\n       \
+        \     self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)\n          \
+        \  self.in2 = torch.nn.InstanceNorm2d(64, affine=True)\n            self.conv3\
+        \ = ConvLayer(64, 128, kernel_size=3, stride=2)\n            self.in3 = torch.nn.InstanceNorm2d(128,\
+        \ affine=True)\n            # Residual layers\n            self.res1 = ResidualBlock(128)\n\
+        \            self.res2 = ResidualBlock(128)\n            self.res3 = ResidualBlock(128)\n\
+        \            self.res4 = ResidualBlock(128)\n            self.res5 = ResidualBlock(128)\n\
+        \            # Upsampling Layers\n            self.deconv1 = UpsampleConvLayer(128,\
+        \ 64, kernel_size=3, stride=1, upsample=2)\n            self.in4 = torch.nn.InstanceNorm2d(64,\
+        \ affine=True)\n            self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3,\
+        \ stride=1, upsample=2)\n            self.in5 = torch.nn.InstanceNorm2d(32,\
+        \ affine=True)\n            self.deconv3 = ConvLayer(32, 3, kernel_size=9,\
+        \ stride=1)\n            # Non-linearities\n            self.relu = torch.nn.ReLU()\n\
+        \n        def forward(self, X):\n            y = self.relu(self.in1(self.conv1(X)))\n\
+        \            y = self.relu(self.in2(self.conv2(y)))\n            y = self.relu(self.in3(self.conv3(y)))\n\
+        \            y = self.res1(y)\n            y = self.res2(y)\n            y\
+        \ = self.res3(y)\n            y = self.res4(y)\n            y = self.res5(y)\n\
+        \            y = self.relu(self.in4(self.deconv1(y)))\n            y = self.relu(self.in5(self.deconv2(y)))\n\
+        \            y = self.deconv3(y)\n            return y\n\n    class ConvLayer(torch.nn.Module):\n\
+        \        def __init__(self, in_channels, out_channels, kernel_size, stride):\n\
+        \            super(ConvLayer, self).__init__()\n            reflection_padding\
+        \ = kernel_size // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n\
+        \            self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size,\
+        \ stride)\n\n        def forward(self, x):\n            out = self.reflection_pad(x)\n\
+        \            out = self.conv2d(out)\n            return out\n\n    class ResidualBlock(torch.nn.Module):\n\
+        \        \"\"\"ResidualBlock\n        introduced in: https://arxiv.org/abs/1512.03385\n\
+        \        recommended architecture: http://torch.ch/blog/2016/02/04/resnets.html\n\
+        \        \"\"\"\n\n        def __init__(self, channels):\n            super(ResidualBlock,\
+        \ self).__init__()\n            self.conv1 = ConvLayer(channels, channels,\
+        \ kernel_size=3, stride=1)\n            self.in1 = torch.nn.InstanceNorm2d(channels,\
+        \ affine=True)\n            self.conv2 = ConvLayer(channels, channels, kernel_size=3,\
+        \ stride=1)\n            self.in2 = torch.nn.InstanceNorm2d(channels, affine=True)\n\
+        \            self.relu = torch.nn.ReLU()\n\n        def forward(self, x):\n\
+        \            residual = x\n            out = self.relu(self.in1(self.conv1(x)))\n\
+        \            out = self.in2(self.conv2(out))\n            out = out + residual\n\
+        \            return out\n\n    class UpsampleConvLayer(torch.nn.Module):\n\
+        \        \"\"\"UpsampleConvLayer\n        Upsamples the input and then does\
+        \ a convolution. This method gives better results\n        compared to ConvTranspose2d.\n\
+        \        ref: http://distill.pub/2016/deconv-checkerboard/\n        \"\"\"\
+        \n\n        def __init__(self, in_channels, out_channels, kernel_size, stride,\
+        \ upsample=None):\n            super(UpsampleConvLayer, self).__init__()\n\
+        \            self.upsample = upsample\n            reflection_padding = kernel_size\
+        \ // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n\
+        \            self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size,\
+        \ stride)\n\n        def forward(self, x):\n            x_in = x\n       \
+        \     if self.upsample:\n                x_in = torch.nn.functional.interpolate(x_in,\
+        \ mode='nearest', scale_factor=self.upsample)\n            out = self.reflection_pad(x_in)\n\
+        \            out = self.conv2d(out)\n            return out\n\n    def load_image(filename,\
+        \ size=None, scale=None):\n        img = Image.open(filename).convert('RGB')\n\
+        \        if size is not None:\n            img = img.resize((size, size),\
+        \ Image.ANTIALIAS)\n        elif scale is not None:\n            img = img.resize((int(img.size[0]\
+        \ / scale), int(img.size[1] / scale)), Image.ANTIALIAS)\n        return img\n\
+        \    \"\"\"\n    Load inference image\n    \"\"\"\n    device = torch.device(\"\
+        cpu\")\n    dummy = False\n    if dummy:\n      numpy_image = np.zeros((100,\
+        \ 100, 3))\n      content_image = Image.fromarray(np.uint8(numpy_image)).convert('RGB')\n\
+        \    else:\n      content_image = load_image(content_img_path, scale=5)\n\
+        \    content_transform = transforms.Compose([\n        transforms.ToTensor(),\n\
+        \        transforms.Lambda(lambda x: x.mul(255))\n    ])\n    content_image\
+        \ = content_transform(content_image)\n    content_image = content_image.unsqueeze(0).to(device)\n\
+        \    logger.info(\"Start inference\")\n    logger.info(f\"{trained_model_path}\"\
+        )\n    logger.info(f\"{output_image_path}\")\n    #os.system(f\"rm -r {output_image_path}\"\
+        )\t\n    os.system(f\"mkdir -p {output_image_path}\")\n    output_image_path\
+        \ += \"/out.jpg\"\n    with torch.no_grad():\n        style_model = TransformerNet()\n\
+        \        \"\"\"\n        Load model from previously trained component\n  \
+        \      \"\"\"\n\n        state_dict = torch.load(trained_model_path)\n   \
+        \     # remove saved deprecated running_* keys in InstanceNorm from the checkpoint\n\
+        \        for k in list(state_dict.keys()):\n            if re.search(r'in\\\
+        d+\\.running_(mean|var)$', k):\n                del state_dict[k]\n      \
+        \  logger.info(\"Load pretrained model\")\n        style_model.load_state_dict(state_dict)\n\
+        \n        style_model.to(device)\n        style_model.eval()\n        logger.info(f\"\
+        Start Evaluating\")\n        output = style_model(content_image).to(device)\n\
+        \        logger.info(f\"Done Evaluating\")\n    logger.info(f\"The output\
+        \ image has been saved to {output_image_path}\")\n\n    def save_image(filename,\
+        \ data):\n        img = data.clone().clamp(0, 255).numpy()\n        img =\
+        \ img.transpose(1, 2, 0).astype(\"uint8\")\n        img = Image.fromarray(img)\n\
+        \        img.save(filename)\n\n    os.system(\"mkdir -p static\")\n    save_image(output_image_path,\
+        \ output[0])\t\n    os.system(f\"cp {output_image_path} static/\")\n    save_image(\"\
+        static/out.jpg\", output[0])\n    print(os.listdir('./static/'))\n    app\
+        \ = Flask(__name__)\n    @app.route('/')\n    def index():\n        return\
+        \ send_file(output_image_path, mimetype='image/jpg')\n        #return f'<img\
+        \ src=\"/static/out.jpg\" alt=\"User Image\">'\n    app.run(host='0.0.0.0',\
+        \ port=82)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog='Infer',\
+        \ description='')\n_parser.add_argument(\"--trained-model\", dest=\"trained_model_path\"\
+        , type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
+        --content-img-path\", dest=\"content_img_path\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--output-image\", dest=\"\
+        output_image_path\", type=_make_parent_dirs_and_return_path, required=True,\
+        \ default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n\
+        _outputs = infer(**_parsed_args)\n"
+      image: jy3694/kubeflow_component_1:latest
+    inputs:
+      parameters:
+      - {name: content_img_path}
+      artifacts:
+      - {name: train-trained_model, path: /tmp/inputs/trained_model/data}
+    outputs:
+      artifacts:
+      - {name: infer-output_image, path: /tmp/outputs/output_image/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.17
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--trained-model", {"inputPath": "trained_model"}, "--content-img-path",
+          {"inputValue": "content_img_path"}, "--output-image", {"outputPath": "output_image"}],
+          "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''loguru'' ''flask'' || PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''loguru'' ''flask''
+          --user) && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n    os.makedirs(os.path.dirname(file_path),
+          exist_ok=True)\n    return file_path\n\ndef infer(\n         trained_model_path,\n         content_img_path,\n         output_image_path,\n         ):\n    import
+          numpy as np\n    import torch\n    from torch.optim import Adam\n    from
+          torch.utils.data import DataLoader\n    from torchvision import datasets\n    from
+          torchvision import transforms\n    import torch.onnx\n    from PIL import
+          Image\n    #import utils\n    #from transformer_net import TransformerNet\n    #from
+          vgg import Vgg16\n    from loguru import logger \n    import time, sys,
+          os, re\n    from flask import Flask, request, render_template, send_file\n\n    class
+          TransformerNet(torch.nn.Module):\n        def __init__(self):\n            super(TransformerNet,
+          self).__init__()\n            # Initial convolution layers\n            self.conv1
+          = ConvLayer(3, 32, kernel_size=9, stride=1)\n            self.in1 = torch.nn.InstanceNorm2d(32,
+          affine=True)\n            self.conv2 = ConvLayer(32, 64, kernel_size=3,
+          stride=2)\n            self.in2 = torch.nn.InstanceNorm2d(64, affine=True)\n            self.conv3
+          = ConvLayer(64, 128, kernel_size=3, stride=2)\n            self.in3 = torch.nn.InstanceNorm2d(128,
+          affine=True)\n            # Residual layers\n            self.res1 = ResidualBlock(128)\n            self.res2
+          = ResidualBlock(128)\n            self.res3 = ResidualBlock(128)\n            self.res4
+          = ResidualBlock(128)\n            self.res5 = ResidualBlock(128)\n            #
+          Upsampling Layers\n            self.deconv1 = UpsampleConvLayer(128, 64,
+          kernel_size=3, stride=1, upsample=2)\n            self.in4 = torch.nn.InstanceNorm2d(64,
+          affine=True)\n            self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3,
+          stride=1, upsample=2)\n            self.in5 = torch.nn.InstanceNorm2d(32,
+          affine=True)\n            self.deconv3 = ConvLayer(32, 3, kernel_size=9,
+          stride=1)\n            # Non-linearities\n            self.relu = torch.nn.ReLU()\n\n        def
+          forward(self, X):\n            y = self.relu(self.in1(self.conv1(X)))\n            y
+          = self.relu(self.in2(self.conv2(y)))\n            y = self.relu(self.in3(self.conv3(y)))\n            y
+          = self.res1(y)\n            y = self.res2(y)\n            y = self.res3(y)\n            y
+          = self.res4(y)\n            y = self.res5(y)\n            y = self.relu(self.in4(self.deconv1(y)))\n            y
+          = self.relu(self.in5(self.deconv2(y)))\n            y = self.deconv3(y)\n            return
+          y\n\n    class ConvLayer(torch.nn.Module):\n        def __init__(self, in_channels,
+          out_channels, kernel_size, stride):\n            super(ConvLayer, self).__init__()\n            reflection_padding
+          = kernel_size // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n            self.conv2d
+          = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)\n\n        def
+          forward(self, x):\n            out = self.reflection_pad(x)\n            out
+          = self.conv2d(out)\n            return out\n\n    class ResidualBlock(torch.nn.Module):\n        \"\"\"ResidualBlock\n        introduced
+          in: https://arxiv.org/abs/1512.03385\n        recommended architecture:
+          http://torch.ch/blog/2016/02/04/resnets.html\n        \"\"\"\n\n        def
+          __init__(self, channels):\n            super(ResidualBlock, self).__init__()\n            self.conv1
+          = ConvLayer(channels, channels, kernel_size=3, stride=1)\n            self.in1
+          = torch.nn.InstanceNorm2d(channels, affine=True)\n            self.conv2
+          = ConvLayer(channels, channels, kernel_size=3, stride=1)\n            self.in2
+          = torch.nn.InstanceNorm2d(channels, affine=True)\n            self.relu
+          = torch.nn.ReLU()\n\n        def forward(self, x):\n            residual
+          = x\n            out = self.relu(self.in1(self.conv1(x)))\n            out
+          = self.in2(self.conv2(out))\n            out = out + residual\n            return
+          out\n\n    class UpsampleConvLayer(torch.nn.Module):\n        \"\"\"UpsampleConvLayer\n        Upsamples
+          the input and then does a convolution. This method gives better results\n        compared
+          to ConvTranspose2d.\n        ref: http://distill.pub/2016/deconv-checkerboard/\n        \"\"\"\n\n        def
+          __init__(self, in_channels, out_channels, kernel_size, stride, upsample=None):\n            super(UpsampleConvLayer,
+          self).__init__()\n            self.upsample = upsample\n            reflection_padding
+          = kernel_size // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n            self.conv2d
+          = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)\n\n        def
+          forward(self, x):\n            x_in = x\n            if self.upsample:\n                x_in
+          = torch.nn.functional.interpolate(x_in, mode=''nearest'', scale_factor=self.upsample)\n            out
+          = self.reflection_pad(x_in)\n            out = self.conv2d(out)\n            return
+          out\n\n    def load_image(filename, size=None, scale=None):\n        img
+          = Image.open(filename).convert(''RGB'')\n        if size is not None:\n            img
+          = img.resize((size, size), Image.ANTIALIAS)\n        elif scale is not None:\n            img
+          = img.resize((int(img.size[0] / scale), int(img.size[1] / scale)), Image.ANTIALIAS)\n        return
+          img\n    \"\"\"\n    Load inference image\n    \"\"\"\n    device = torch.device(\"cpu\")\n    dummy
+          = False\n    if dummy:\n      numpy_image = np.zeros((100, 100, 3))\n      content_image
+          = Image.fromarray(np.uint8(numpy_image)).convert(''RGB'')\n    else:\n      content_image
+          = load_image(content_img_path, scale=5)\n    content_transform = transforms.Compose([\n        transforms.ToTensor(),\n        transforms.Lambda(lambda
+          x: x.mul(255))\n    ])\n    content_image = content_transform(content_image)\n    content_image
+          = content_image.unsqueeze(0).to(device)\n    logger.info(\"Start inference\")\n    logger.info(f\"{trained_model_path}\")\n    logger.info(f\"{output_image_path}\")\n    #os.system(f\"rm
+          -r {output_image_path}\")\t\n    os.system(f\"mkdir -p {output_image_path}\")\n    output_image_path
+          += \"/out.jpg\"\n    with torch.no_grad():\n        style_model = TransformerNet()\n        \"\"\"\n        Load
+          model from previously trained component\n        \"\"\"\n\n        state_dict
+          = torch.load(trained_model_path)\n        # remove saved deprecated running_*
+          keys in InstanceNorm from the checkpoint\n        for k in list(state_dict.keys()):\n            if
+          re.search(r''in\\d+\\.running_(mean|var)$'', k):\n                del state_dict[k]\n        logger.info(\"Load
+          pretrained model\")\n        style_model.load_state_dict(state_dict)\n\n        style_model.to(device)\n        style_model.eval()\n        logger.info(f\"Start
+          Evaluating\")\n        output = style_model(content_image).to(device)\n        logger.info(f\"Done
+          Evaluating\")\n    logger.info(f\"The output image has been saved to {output_image_path}\")\n\n    def
+          save_image(filename, data):\n        img = data.clone().clamp(0, 255).numpy()\n        img
+          = img.transpose(1, 2, 0).astype(\"uint8\")\n        img = Image.fromarray(img)\n        img.save(filename)\n\n    os.system(\"mkdir
+          -p static\")\n    save_image(output_image_path, output[0])\t\n    os.system(f\"cp
+          {output_image_path} static/\")\n    save_image(\"static/out.jpg\", output[0])\n    print(os.listdir(''./static/''))\n    app
+          = Flask(__name__)\n    @app.route(''/'')\n    def index():\n        return
+          send_file(output_image_path, mimetype=''image/jpg'')\n        #return f''<img
+          src=\"/static/out.jpg\" alt=\"User Image\">''\n    app.run(host=''0.0.0.0'',
+          port=82)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Infer'',
+          description='''')\n_parser.add_argument(\"--trained-model\", dest=\"trained_model_path\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--content-img-path\",
+          dest=\"content_img_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--output-image\",
+          dest=\"output_image_path\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = infer(**_parsed_args)\n"], "image": "jy3694/kubeflow_component_1:latest"}},
+          "inputs": [{"name": "trained_model", "type": "String"}, {"name": "content_img_path",
+          "type": "String"}], "name": "Infer", "outputs": [{"name": "output_image",
+          "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"content_img_path":
+          "{{inputs.parameters.content_img_path}}"}'}
+  - name: my-pipeline
+    inputs:
+      parameters:
+      - {name: content_img_path}
+      - {name: dataset_path}
+      - {name: epochs}
+      - {name: style_image}
+    dag:
+      tasks:
+      - name: infer
+        template: infer
+        dependencies: [train]
+        arguments:
+          parameters:
+          - {name: content_img_path, value: '{{inputs.parameters.content_img_path}}'}
+          artifacts:
+          - {name: train-trained_model, from: '{{tasks.train.outputs.artifacts.train-trained_model}}'}
+      - name: train
+        template: train
+        arguments:
+          parameters:
+          - {name: dataset_path, value: '{{inputs.parameters.dataset_path}}'}
+          - {name: epochs, value: '{{inputs.parameters.epochs}}'}
+          - {name: style_image, value: '{{inputs.parameters.style_image}}'}
+  - name: train
+    container:
+      args: [--dataset-path, '{{inputs.parameters.dataset_path}}', --epochs, '{{inputs.parameters.epochs}}',
+        --style-image, '{{inputs.parameters.style_image}}', --image-size, '224', --batch-size,
+        '4', --trained-model, /tmp/outputs/trained_model/data]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'loguru' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet
+        --no-warn-script-location 'loguru' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - "def _make_parent_dirs_and_return_path(file_path: str):\n    import os\n \
+        \   os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return file_path\n\
+        \ndef train(dataset_path,\n          epochs, \n          style_image,\n  \
+        \        trained_model_path,\n          image_size = 224,\n          batch_size\
+        \ = 4,\n         ):\n    import numpy as np\n    import torch\n    from torch.optim\
+        \ import Adam\n    from torch.utils.data import DataLoader\n    from torchvision\
+        \ import datasets\n    from torchvision import transforms\n    import torch.onnx\n\
+        \    from PIL import Image\n    #import utils\n    #from transformer_net import\
+        \ TransformerNet\n    #from vgg import Vgg16\n    from loguru import logger\
+        \ \n    from collections import namedtuple\n    from torchvision import models\n\
+        \    import time, sys, os\n\n    class TransformerNet(torch.nn.Module):\n\
+        \        def __init__(self):\n            super(TransformerNet, self).__init__()\n\
+        \            # Initial convolution layers\n            self.conv1 = ConvLayer(3,\
+        \ 32, kernel_size=9, stride=1)\n            self.in1 = torch.nn.InstanceNorm2d(32,\
+        \ affine=True)\n            self.conv2 = ConvLayer(32, 64, kernel_size=3,\
+        \ stride=2)\n            self.in2 = torch.nn.InstanceNorm2d(64, affine=True)\n\
+        \            self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)\n  \
+        \          self.in3 = torch.nn.InstanceNorm2d(128, affine=True)\n        \
+        \    # Residual layers\n            self.res1 = ResidualBlock(128)\n     \
+        \       self.res2 = ResidualBlock(128)\n            self.res3 = ResidualBlock(128)\n\
+        \            self.res4 = ResidualBlock(128)\n            self.res5 = ResidualBlock(128)\n\
+        \            # Upsampling Layers\n            self.deconv1 = UpsampleConvLayer(128,\
+        \ 64, kernel_size=3, stride=1, upsample=2)\n            self.in4 = torch.nn.InstanceNorm2d(64,\
+        \ affine=True)\n            self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3,\
+        \ stride=1, upsample=2)\n            self.in5 = torch.nn.InstanceNorm2d(32,\
+        \ affine=True)\n            self.deconv3 = ConvLayer(32, 3, kernel_size=9,\
+        \ stride=1)\n            # Non-linearities\n            self.relu = torch.nn.ReLU()\n\
+        \n        def forward(self, X):\n            y = self.relu(self.in1(self.conv1(X)))\n\
+        \            y = self.relu(self.in2(self.conv2(y)))\n            y = self.relu(self.in3(self.conv3(y)))\n\
+        \            y = self.res1(y)\n            y = self.res2(y)\n            y\
+        \ = self.res3(y)\n            y = self.res4(y)\n            y = self.res5(y)\n\
+        \            y = self.relu(self.in4(self.deconv1(y)))\n            y = self.relu(self.in5(self.deconv2(y)))\n\
+        \            y = self.deconv3(y)\n            return y\n\n    class ConvLayer(torch.nn.Module):\n\
+        \        def __init__(self, in_channels, out_channels, kernel_size, stride):\n\
+        \            super(ConvLayer, self).__init__()\n            reflection_padding\
+        \ = kernel_size // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n\
+        \            self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size,\
+        \ stride)\n\n        def forward(self, x):\n            out = self.reflection_pad(x)\n\
+        \            out = self.conv2d(out)\n            return out\n\n    class ResidualBlock(torch.nn.Module):\n\
+        \        \"\"\"ResidualBlock\n        introduced in: https://arxiv.org/abs/1512.03385\n\
+        \        recommended architecture: http://torch.ch/blog/2016/02/04/resnets.html\n\
+        \        \"\"\"\n\n        def __init__(self, channels):\n            super(ResidualBlock,\
+        \ self).__init__()\n            self.conv1 = ConvLayer(channels, channels,\
+        \ kernel_size=3, stride=1)\n            self.in1 = torch.nn.InstanceNorm2d(channels,\
+        \ affine=True)\n            self.conv2 = ConvLayer(channels, channels, kernel_size=3,\
+        \ stride=1)\n            self.in2 = torch.nn.InstanceNorm2d(channels, affine=True)\n\
+        \            self.relu = torch.nn.ReLU()\n\n        def forward(self, x):\n\
+        \            residual = x\n            out = self.relu(self.in1(self.conv1(x)))\n\
+        \            out = self.in2(self.conv2(out))\n            out = out + residual\n\
+        \            return out\n\n    class UpsampleConvLayer(torch.nn.Module):\n\
+        \        \"\"\"UpsampleConvLayer\n        Upsamples the input and then does\
+        \ a convolution. This method gives better results\n        compared to ConvTranspose2d.\n\
+        \        ref: http://distill.pub/2016/deconv-checkerboard/\n        \"\"\"\
+        \n\n        def __init__(self, in_channels, out_channels, kernel_size, stride,\
+        \ upsample=None):\n            super(UpsampleConvLayer, self).__init__()\n\
+        \            self.upsample = upsample\n            reflection_padding = kernel_size\
+        \ // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n\
+        \            self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size,\
+        \ stride)\n\n        def forward(self, x):\n            x_in = x\n       \
+        \     if self.upsample:\n                x_in = torch.nn.functional.interpolate(x_in,\
+        \ mode='nearest', scale_factor=self.upsample)\n            out = self.reflection_pad(x_in)\n\
+        \            out = self.conv2d(out)\n            return out\n\n    class Vgg16(torch.nn.Module):\n\
+        \        def __init__(self, requires_grad=False):\n            super(Vgg16,\
+        \ self).__init__()\n            vgg_pretrained_features = models.vgg16(pretrained=True).features\n\
+        \            self.slice1 = torch.nn.Sequential()\n            self.slice2\
+        \ = torch.nn.Sequential()\n            self.slice3 = torch.nn.Sequential()\n\
+        \            self.slice4 = torch.nn.Sequential()\n            for x in range(4):\n\
+        \                self.slice1.add_module(str(x), vgg_pretrained_features[x])\n\
+        \            for x in range(4, 9):\n                self.slice2.add_module(str(x),\
+        \ vgg_pretrained_features[x])\n            for x in range(9, 16):\n      \
+        \          self.slice3.add_module(str(x), vgg_pretrained_features[x])\n  \
+        \          for x in range(16, 23):\n                self.slice4.add_module(str(x),\
+        \ vgg_pretrained_features[x])\n            if not requires_grad:\n       \
+        \         for param in self.parameters():\n                    param.requires_grad\
+        \ = False\n\n        def forward(self, X):\n            h = self.slice1(X)\n\
+        \            h_relu1_2 = h\n            h = self.slice2(h)\n            h_relu2_2\
+        \ = h\n            h = self.slice3(h)\n            h_relu3_3 = h\n       \
+        \     h = self.slice4(h)\n            h_relu4_3 = h\n            vgg_outputs\
+        \ = namedtuple(\"VggOutputs\", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])\n\
+        \            out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)\n\
+        \            return out\n\n    def load_image(filename, size=None, scale=None):\n\
+        \        img = Image.open(filename).convert('RGB')\n        if size is not\
+        \ None:\n            img = img.resize((size, size), Image.ANTIALIAS)\n   \
+        \     elif scale is not None:\n            img = img.resize((int(img.size[0]\
+        \ / scale), int(img.size[1] / scale)), Image.ANTIALIAS)\n        return img\n\
+        \n    def gram_matrix(y):\n        (b, ch, h, w) = y.size()\n        features\
+        \ = y.view(b, ch, w * h)\n        features_t = features.transpose(1, 2)\n\
+        \        gram = features.bmm(features_t) / (ch * h * w)\n        return gram\n\
+        \n    def normalize_batch(batch):\n        # normalize using imagenet mean\
+        \ and std\n        mean = batch.new_tensor([0.485, 0.456, 0.406]).view(-1,\
+        \ 1, 1)\n        std = batch.new_tensor([0.229, 0.224, 0.225]).view(-1, 1,\
+        \ 1)\n        batch = batch.div_(255.0)\n        return (batch - mean) / std\n\
+        \n    \"\"\"\n    Load dataset from dataset_path\n    \"\"\"\n    transform\
+        \ = transforms.Compose([\n        transforms.Resize(image_size),\n       \
+        \ transforms.CenterCrop(image_size),\n        transforms.ToTensor(),\n   \
+        \     transforms.Lambda(lambda x: x.mul(255))\n    ])\n    dummy = False\n\
+        \    if dummy:\n        logger.info(\"=> Dummy data is used!\")\n        train_dataset\
+        \ = datasets.FakeData(10, (3, image_size, image_size), 10, transforms.ToTensor())\n\
+        \    else:\n        train_dataset = datasets.ImageFolder(dataset_path, \n\
+        \                                             transform)\n    train_loader\
+        \ = DataLoader(train_dataset, \n                              batch_size=batch_size)\n\
+        \    np.random.seed(0)\n    torch.manual_seed(0)\n    device = torch.device('cpu')\n\
+        \n    \"\"\"\n    Load model\n    \"\"\"\n    content_weight = 1e5\n    style_weight\
+        \ = 1e10\n    lr = 1e-3\n    transformer = TransformerNet().to(device)\n \
+        \   optimizer = Adam(transformer.parameters(), lr)\n    mse_loss = torch.nn.MSELoss()\n\
+        \n    vgg = Vgg16(requires_grad=False).to(device)\n\n    style_transform =\
+        \ transforms.Compose([\n        transforms.ToTensor(),\n        transforms.Lambda(lambda\
+        \ x: x.mul(255))\n    ])\n    if dummy:\n        numpy_image = np.zeros((image_size,\
+        \ image_size, 3))\n        style = Image.fromarray(np.uint8(numpy_image)).convert('RGB')\n\
+        \    else:\n        style = load_image(style_image)\n    style = style_transform(style)\n\
+        \    style = style.repeat(batch_size, 1, 1, 1).to(device)\n\n    features_style\
+        \ = vgg(normalize_batch(style))\n    gram_style = [gram_matrix(y) for y in\
+        \ features_style]\n\n    \"\"\"\n    Start training\n\n    \"\"\"\n\n    logger.info(\"\
+        Start training\")\n\n    for e in range(epochs):\n        transformer.train()\n\
+        \        agg_content_loss = 0.\n        agg_style_loss = 0.\n        count\
+        \ = 0\n        for batch_id, (x, _) in enumerate(train_loader):\n        \
+        \    #logger.info(f\"Step: {batch_id}\")\n            n_batch = len(x)\n \
+        \           count += n_batch\n            optimizer.zero_grad()\n\n      \
+        \      x = x.to(device)\n            y = transformer(x)\n\n            y =\
+        \ normalize_batch(y)\n            x = normalize_batch(x)\n\n            features_y\
+        \ = vgg(y)\n            features_x = vgg(x)\n\n            content_loss =\
+        \ content_weight * mse_loss(features_y.relu2_2, features_x.relu2_2)\n\n  \
+        \          style_loss = 0.\n            for ft_y, gm_s in zip(features_y,\
+        \ gram_style):\n                gm_y = gram_matrix(ft_y)\n               \
+        \ style_loss += mse_loss(gm_y, gm_s[:n_batch, :, :])\n            style_loss\
+        \ *=  style_weight\n\n            total_loss = content_loss + style_loss\n\
+        \            total_loss.backward()\n            optimizer.step()\n\n     \
+        \       agg_content_loss += content_loss.item()\n            agg_style_loss\
+        \ += style_loss.item()\n\n            if (batch_id + 1) % 1 == 0:\n      \
+        \          mesg = \"{}\\tEpoch {}:\\t[{}/{}]\\tcontent: {:.6f}\\tstyle: {:.6f}\\\
+        ttotal: {:.6f}\".format(\n                    time.ctime(), e + 1, count,\
+        \ len(train_dataset),\n                                  agg_content_loss\
+        \ / (batch_id + 1),\n                                  agg_style_loss / (batch_id\
+        \ + 1),\n                                  (agg_content_loss + agg_style_loss)\
+        \ / (batch_id + 1)\n                )\n                logger.info(mesg)\n\
+        \n    \"\"\"\n    save model\n    \"\"\"\n    transformer.eval().cpu()\n \
+        \   save_model_dir = \"./\"\n    save_model_filename = \"ckpt.pth\"\n    save_model_path\
+        \ = os.path.join(save_model_dir, save_model_filename)\n    torch.save(transformer.state_dict(),\
+        \ save_model_path)\n\n    logger.info(\"\\nDone, trained model saved at\"\
+        , save_model_path)\n\n    \"\"\"\n    with open(trained_model_path, 'w') as\
+        \ writer:\n        writer.write(transformer)\n    \"\"\"\n    torch.save(transformer.state_dict(),\
+        \ trained_model_path)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog='Train',\
+        \ description='')\n_parser.add_argument(\"--dataset-path\", dest=\"dataset_path\"\
+        , type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
+        --epochs\", dest=\"epochs\", type=int, required=True, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--style-image\", dest=\"style_image\", type=str, required=True,\
+        \ default=argparse.SUPPRESS)\n_parser.add_argument(\"--image-size\", dest=\"\
+        image_size\", type=int, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"\
+        --batch-size\", dest=\"batch_size\", type=int, required=False, default=argparse.SUPPRESS)\n\
+        _parser.add_argument(\"--trained-model\", dest=\"trained_model_path\", type=_make_parent_dirs_and_return_path,\
+        \ required=True, default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\
+        \n_outputs = train(**_parsed_args)\n"
+      image: jy3694/kubeflow_component_1:latest
+    inputs:
+      parameters:
+      - {name: dataset_path}
+      - {name: epochs}
+      - {name: style_image}
+    outputs:
+      artifacts:
+      - {name: train-trained_model, path: /tmp/outputs/trained_model/data}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.17
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--dataset-path", {"inputValue": "dataset_path"}, "--epochs",
+          {"inputValue": "epochs"}, "--style-image", {"inputValue": "style_image"},
+          {"if": {"cond": {"isPresent": "image_size"}, "then": ["--image-size", {"inputValue":
+          "image_size"}]}}, {"if": {"cond": {"isPresent": "batch_size"}, "then": ["--batch-size",
+          {"inputValue": "batch_size"}]}}, "--trained-model", {"outputPath": "trained_model"}],
+          "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''loguru'' || PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''loguru'' --user)
+          && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\"
+          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def _make_parent_dirs_and_return_path(file_path:
+          str):\n    import os\n    os.makedirs(os.path.dirname(file_path), exist_ok=True)\n    return
+          file_path\n\ndef train(dataset_path,\n          epochs, \n          style_image,\n          trained_model_path,\n          image_size
+          = 224,\n          batch_size = 4,\n         ):\n    import numpy as np\n    import
+          torch\n    from torch.optim import Adam\n    from torch.utils.data import
+          DataLoader\n    from torchvision import datasets\n    from torchvision import
+          transforms\n    import torch.onnx\n    from PIL import Image\n    #import
+          utils\n    #from transformer_net import TransformerNet\n    #from vgg import
+          Vgg16\n    from loguru import logger \n    from collections import namedtuple\n    from
+          torchvision import models\n    import time, sys, os\n\n    class TransformerNet(torch.nn.Module):\n        def
+          __init__(self):\n            super(TransformerNet, self).__init__()\n            #
+          Initial convolution layers\n            self.conv1 = ConvLayer(3, 32, kernel_size=9,
+          stride=1)\n            self.in1 = torch.nn.InstanceNorm2d(32, affine=True)\n            self.conv2
+          = ConvLayer(32, 64, kernel_size=3, stride=2)\n            self.in2 = torch.nn.InstanceNorm2d(64,
+          affine=True)\n            self.conv3 = ConvLayer(64, 128, kernel_size=3,
+          stride=2)\n            self.in3 = torch.nn.InstanceNorm2d(128, affine=True)\n            #
+          Residual layers\n            self.res1 = ResidualBlock(128)\n            self.res2
+          = ResidualBlock(128)\n            self.res3 = ResidualBlock(128)\n            self.res4
+          = ResidualBlock(128)\n            self.res5 = ResidualBlock(128)\n            #
+          Upsampling Layers\n            self.deconv1 = UpsampleConvLayer(128, 64,
+          kernel_size=3, stride=1, upsample=2)\n            self.in4 = torch.nn.InstanceNorm2d(64,
+          affine=True)\n            self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3,
+          stride=1, upsample=2)\n            self.in5 = torch.nn.InstanceNorm2d(32,
+          affine=True)\n            self.deconv3 = ConvLayer(32, 3, kernel_size=9,
+          stride=1)\n            # Non-linearities\n            self.relu = torch.nn.ReLU()\n\n        def
+          forward(self, X):\n            y = self.relu(self.in1(self.conv1(X)))\n            y
+          = self.relu(self.in2(self.conv2(y)))\n            y = self.relu(self.in3(self.conv3(y)))\n            y
+          = self.res1(y)\n            y = self.res2(y)\n            y = self.res3(y)\n            y
+          = self.res4(y)\n            y = self.res5(y)\n            y = self.relu(self.in4(self.deconv1(y)))\n            y
+          = self.relu(self.in5(self.deconv2(y)))\n            y = self.deconv3(y)\n            return
+          y\n\n    class ConvLayer(torch.nn.Module):\n        def __init__(self, in_channels,
+          out_channels, kernel_size, stride):\n            super(ConvLayer, self).__init__()\n            reflection_padding
+          = kernel_size // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n            self.conv2d
+          = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)\n\n        def
+          forward(self, x):\n            out = self.reflection_pad(x)\n            out
+          = self.conv2d(out)\n            return out\n\n    class ResidualBlock(torch.nn.Module):\n        \"\"\"ResidualBlock\n        introduced
+          in: https://arxiv.org/abs/1512.03385\n        recommended architecture:
+          http://torch.ch/blog/2016/02/04/resnets.html\n        \"\"\"\n\n        def
+          __init__(self, channels):\n            super(ResidualBlock, self).__init__()\n            self.conv1
+          = ConvLayer(channels, channels, kernel_size=3, stride=1)\n            self.in1
+          = torch.nn.InstanceNorm2d(channels, affine=True)\n            self.conv2
+          = ConvLayer(channels, channels, kernel_size=3, stride=1)\n            self.in2
+          = torch.nn.InstanceNorm2d(channels, affine=True)\n            self.relu
+          = torch.nn.ReLU()\n\n        def forward(self, x):\n            residual
+          = x\n            out = self.relu(self.in1(self.conv1(x)))\n            out
+          = self.in2(self.conv2(out))\n            out = out + residual\n            return
+          out\n\n    class UpsampleConvLayer(torch.nn.Module):\n        \"\"\"UpsampleConvLayer\n        Upsamples
+          the input and then does a convolution. This method gives better results\n        compared
+          to ConvTranspose2d.\n        ref: http://distill.pub/2016/deconv-checkerboard/\n        \"\"\"\n\n        def
+          __init__(self, in_channels, out_channels, kernel_size, stride, upsample=None):\n            super(UpsampleConvLayer,
+          self).__init__()\n            self.upsample = upsample\n            reflection_padding
+          = kernel_size // 2\n            self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)\n            self.conv2d
+          = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)\n\n        def
+          forward(self, x):\n            x_in = x\n            if self.upsample:\n                x_in
+          = torch.nn.functional.interpolate(x_in, mode=''nearest'', scale_factor=self.upsample)\n            out
+          = self.reflection_pad(x_in)\n            out = self.conv2d(out)\n            return
+          out\n\n    class Vgg16(torch.nn.Module):\n        def __init__(self, requires_grad=False):\n            super(Vgg16,
+          self).__init__()\n            vgg_pretrained_features = models.vgg16(pretrained=True).features\n            self.slice1
+          = torch.nn.Sequential()\n            self.slice2 = torch.nn.Sequential()\n            self.slice3
+          = torch.nn.Sequential()\n            self.slice4 = torch.nn.Sequential()\n            for
+          x in range(4):\n                self.slice1.add_module(str(x), vgg_pretrained_features[x])\n            for
+          x in range(4, 9):\n                self.slice2.add_module(str(x), vgg_pretrained_features[x])\n            for
+          x in range(9, 16):\n                self.slice3.add_module(str(x), vgg_pretrained_features[x])\n            for
+          x in range(16, 23):\n                self.slice4.add_module(str(x), vgg_pretrained_features[x])\n            if
+          not requires_grad:\n                for param in self.parameters():\n                    param.requires_grad
+          = False\n\n        def forward(self, X):\n            h = self.slice1(X)\n            h_relu1_2
+          = h\n            h = self.slice2(h)\n            h_relu2_2 = h\n            h
+          = self.slice3(h)\n            h_relu3_3 = h\n            h = self.slice4(h)\n            h_relu4_3
+          = h\n            vgg_outputs = namedtuple(\"VggOutputs\", [''relu1_2'',
+          ''relu2_2'', ''relu3_3'', ''relu4_3''])\n            out = vgg_outputs(h_relu1_2,
+          h_relu2_2, h_relu3_3, h_relu4_3)\n            return out\n\n    def load_image(filename,
+          size=None, scale=None):\n        img = Image.open(filename).convert(''RGB'')\n        if
+          size is not None:\n            img = img.resize((size, size), Image.ANTIALIAS)\n        elif
+          scale is not None:\n            img = img.resize((int(img.size[0] / scale),
+          int(img.size[1] / scale)), Image.ANTIALIAS)\n        return img\n\n    def
+          gram_matrix(y):\n        (b, ch, h, w) = y.size()\n        features = y.view(b,
+          ch, w * h)\n        features_t = features.transpose(1, 2)\n        gram
+          = features.bmm(features_t) / (ch * h * w)\n        return gram\n\n    def
+          normalize_batch(batch):\n        # normalize using imagenet mean and std\n        mean
+          = batch.new_tensor([0.485, 0.456, 0.406]).view(-1, 1, 1)\n        std =
+          batch.new_tensor([0.229, 0.224, 0.225]).view(-1, 1, 1)\n        batch =
+          batch.div_(255.0)\n        return (batch - mean) / std\n\n    \"\"\"\n    Load
+          dataset from dataset_path\n    \"\"\"\n    transform = transforms.Compose([\n        transforms.Resize(image_size),\n        transforms.CenterCrop(image_size),\n        transforms.ToTensor(),\n        transforms.Lambda(lambda
+          x: x.mul(255))\n    ])\n    dummy = False\n    if dummy:\n        logger.info(\"=>
+          Dummy data is used!\")\n        train_dataset = datasets.FakeData(10, (3,
+          image_size, image_size), 10, transforms.ToTensor())\n    else:\n        train_dataset
+          = datasets.ImageFolder(dataset_path, \n                                             transform)\n    train_loader
+          = DataLoader(train_dataset, \n                              batch_size=batch_size)\n    np.random.seed(0)\n    torch.manual_seed(0)\n    device
+          = torch.device(''cpu'')\n\n    \"\"\"\n    Load model\n    \"\"\"\n    content_weight
+          = 1e5\n    style_weight = 1e10\n    lr = 1e-3\n    transformer = TransformerNet().to(device)\n    optimizer
+          = Adam(transformer.parameters(), lr)\n    mse_loss = torch.nn.MSELoss()\n\n    vgg
+          = Vgg16(requires_grad=False).to(device)\n\n    style_transform = transforms.Compose([\n        transforms.ToTensor(),\n        transforms.Lambda(lambda
+          x: x.mul(255))\n    ])\n    if dummy:\n        numpy_image = np.zeros((image_size,
+          image_size, 3))\n        style = Image.fromarray(np.uint8(numpy_image)).convert(''RGB'')\n    else:\n        style
+          = load_image(style_image)\n    style = style_transform(style)\n    style
+          = style.repeat(batch_size, 1, 1, 1).to(device)\n\n    features_style = vgg(normalize_batch(style))\n    gram_style
+          = [gram_matrix(y) for y in features_style]\n\n    \"\"\"\n    Start training\n\n    \"\"\"\n\n    logger.info(\"Start
+          training\")\n\n    for e in range(epochs):\n        transformer.train()\n        agg_content_loss
+          = 0.\n        agg_style_loss = 0.\n        count = 0\n        for batch_id,
+          (x, _) in enumerate(train_loader):\n            #logger.info(f\"Step: {batch_id}\")\n            n_batch
+          = len(x)\n            count += n_batch\n            optimizer.zero_grad()\n\n            x
+          = x.to(device)\n            y = transformer(x)\n\n            y = normalize_batch(y)\n            x
+          = normalize_batch(x)\n\n            features_y = vgg(y)\n            features_x
+          = vgg(x)\n\n            content_loss = content_weight * mse_loss(features_y.relu2_2,
+          features_x.relu2_2)\n\n            style_loss = 0.\n            for ft_y,
+          gm_s in zip(features_y, gram_style):\n                gm_y = gram_matrix(ft_y)\n                style_loss
+          += mse_loss(gm_y, gm_s[:n_batch, :, :])\n            style_loss *=  style_weight\n\n            total_loss
+          = content_loss + style_loss\n            total_loss.backward()\n            optimizer.step()\n\n            agg_content_loss
+          += content_loss.item()\n            agg_style_loss += style_loss.item()\n\n            if
+          (batch_id + 1) % 1 == 0:\n                mesg = \"{}\\tEpoch {}:\\t[{}/{}]\\tcontent:
+          {:.6f}\\tstyle: {:.6f}\\ttotal: {:.6f}\".format(\n                    time.ctime(),
+          e + 1, count, len(train_dataset),\n                                  agg_content_loss
+          / (batch_id + 1),\n                                  agg_style_loss / (batch_id
+          + 1),\n                                  (agg_content_loss + agg_style_loss)
+          / (batch_id + 1)\n                )\n                logger.info(mesg)\n\n    \"\"\"\n    save
+          model\n    \"\"\"\n    transformer.eval().cpu()\n    save_model_dir = \"./\"\n    save_model_filename
+          = \"ckpt.pth\"\n    save_model_path = os.path.join(save_model_dir, save_model_filename)\n    torch.save(transformer.state_dict(),
+          save_model_path)\n\n    logger.info(\"\\nDone, trained model saved at\",
+          save_model_path)\n\n    \"\"\"\n    with open(trained_model_path, ''w'')
+          as writer:\n        writer.write(transformer)\n    \"\"\"\n    torch.save(transformer.state_dict(),
+          trained_model_path)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Train'',
+          description='''')\n_parser.add_argument(\"--dataset-path\", dest=\"dataset_path\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--epochs\",
+          dest=\"epochs\", type=int, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--style-image\",
+          dest=\"style_image\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--image-size\",
+          dest=\"image_size\", type=int, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"--batch-size\",
+          dest=\"batch_size\", type=int, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"--trained-model\",
+          dest=\"trained_model_path\", type=_make_parent_dirs_and_return_path, required=True,
+          default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = train(**_parsed_args)\n"], "image": "jy3694/kubeflow_component_1:latest"}},
+          "inputs": [{"name": "dataset_path", "type": "String"}, {"name": "epochs",
+          "type": "Integer"}, {"name": "style_image", "type": "String"}, {"default":
+          "224", "name": "image_size", "optional": true, "type": "Integer"}, {"default":
+          "4", "name": "batch_size", "optional": true, "type": "Integer"}], "name":
+          "Train", "outputs": [{"name": "trained_model", "type": "String"}]}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"batch_size": "4", "dataset_path":
+          "{{inputs.parameters.dataset_path}}", "epochs": "{{inputs.parameters.epochs}}",
+          "image_size": "224", "style_image": "{{inputs.parameters.style_image}}"}'}
+  arguments:
+    parameters:
+    - {name: dataset_path, value: /data/coco_sampled}
+    - {name: epochs, value: '2'}
+    - {name: style_image, value: /data/images/style-images/mosaic.jpg}
+    - {name: content_img_path, value: /data/images/content-images/1.png}
+  serviceAccountName: pipeline-runner
